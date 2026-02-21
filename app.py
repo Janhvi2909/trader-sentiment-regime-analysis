@@ -1,165 +1,264 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-import os
+import plotly.express as px
+from pathlib import Path
 
-st.set_page_config(layout="wide")
+# ======================================================
+# PAGE CONFIG
+# ======================================================
+st.set_page_config(
+    page_title="Trader Regime Intelligence Terminal",
+    layout="wide"
+)
 
-# ---------- THEME ----------
+# ======================================================
+# GLOBAL STYLES
+# ======================================================
 st.markdown("""
 <style>
-.block-container {
-    padding-top: 2rem;
+.block-container {padding-top: 2rem;}
+.metric-card {
+    background-color: #111827;
+    padding: 18px;
+    border-radius: 12px;
+    border: 1px solid #1f2937;
 }
-h1, h2, h3 {
+.section-header {
+    font-size: 1.4rem;
     font-weight: 600;
+    margin-top: 1.5rem;
+}
+.section-sub {
+    color: #9CA3AF;
+    margin-bottom: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Trader Sentiment & Regime Intelligence Dashboard")
-st.caption("Regime-based performance diagnostics, behavioral drivers, volatility modeling, and trader archetype segmentation.")
+# ======================================================
+# LOAD DATA
+# ======================================================
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "outputs" / "tables"
 
-# ---------- LOAD DATA ----------
-daily_metrics = pd.read_csv("outputs/daily_metrics_summary.csv")
-risk_summary = pd.read_csv("outputs/risk_summary.csv")
-cluster_summary = pd.read_csv("outputs/cluster_summary.csv")
-feature_importance = pd.read_csv("outputs/feature_importance.csv")
+@st.cache_data
+def load_data():
+    risk = pd.read_csv(DATA_DIR / "risk_summary.csv")
+    cluster = pd.read_csv(DATA_DIR / "cluster_summary.csv")
+    full = pd.read_csv(DATA_DIR / "daily_metrics_full.csv")
+    feat = pd.read_csv(DATA_DIR / "feature_importance.csv")
+    return risk, cluster, full, feat
 
-# =====================================================
-# 1️⃣ REGIME RISK SUMMARY
-# =====================================================
+risk_summary, cluster_summary, daily_full, feature_importance = load_data()
 
-st.markdown("## 1️⃣ Regime Risk & Performance Summary")
+# ======================================================
+# SIDEBAR FILTER
+# ======================================================
+st.sidebar.title("🛠 Regime Controls")
 
-col1, col2 = st.columns([1.2, 1])
-
-with col1:
-    st.subheader("Risk Metrics by Sentiment")
-    st.dataframe(risk_summary, use_container_width=True)
-
-with col2:
-    st.subheader("Risk-Adjusted Performance")
-
-    fig, ax = plt.subplots(figsize=(6,4))
-    sns.barplot(
-        data=risk_summary,
-        x="sentiment_group",
-        y="risk_adjusted_score",
-        palette="Blues_d",
-        ax=ax
-    )
-    ax.set_ylabel("Mean / Std")
-    ax.set_xlabel("")
-    ax.set_title("Risk-Adjusted Score by Regime")
-    st.pyplot(fig)
-
-# =====================================================
-# 2️⃣ VOLATILITY PREDICTION DRIVERS
-# =====================================================
-
-st.markdown("---")
-st.markdown("## 2️⃣ Volatility Prediction Drivers")
-
-fig2, ax2 = plt.subplots(figsize=(7,4))
-
-feature_importance = feature_importance.sort_values("importance", ascending=True)
-
-sns.barplot(
-    data=feature_importance,
-    x="importance",
-    y="feature",
-    palette="viridis",
-    ax=ax2
+regimes = daily_full["sentiment_group"].unique()
+selected_regimes = st.sidebar.multiselect(
+    "Select Market Regimes",
+    regimes,
+    default=list(regimes)
 )
 
-ax2.set_title("Feature Importance – Next-Day Volatility")
-ax2.set_xlabel("Relative Importance")
-ax2.set_ylabel("")
-st.pyplot(fig2)
+filtered_df = daily_full[daily_full["sentiment_group"].isin(selected_regimes)]
 
-st.info("Insight: Trade size and frequency dominate volatility forecasting. Sentiment alone does not explain risk expansion.")
+# ======================================================
+# HEADER
+# ======================================================
+st.title("📊 Trader Sentiment & Regime Intelligence Terminal")
+st.markdown(
+    "Quant-grade behavioral diagnostics for regime-based risk, "
+    "volatility expansion, and structural trader segmentation."
+)
 
-# =====================================================
-# 3️⃣ TRADER ARCHETYPE SEGMENTATION
-# =====================================================
+st.divider()
 
-st.markdown("---")
-st.markdown("## 3️⃣ Trader Archetype Segmentation")
+# ======================================================
+# KPI PANEL
+# ======================================================
+k1, k2, k3, k4 = st.columns(4)
 
-col3, col4 = st.columns([1.1, 1])
+with k1:
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    sharpe_proxy = filtered_df["daily_pnl"].mean() / filtered_df["daily_pnl"].std()
+    st.metric("Sharpe Proxy", f"{sharpe_proxy:.2f}")
+    st.caption("Mean / Std PnL")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-with col3:
-    st.subheader("Cluster Summary")
-    st.dataframe(cluster_summary, use_container_width=True)
+with k2:
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
 
-with col4:
-    st.subheader("Behavioral Positioning")
+    # Compute volatility directly from daily PnL
+    vol_expansion = filtered_df["daily_pnl"].std()
 
-    fig3, ax3 = plt.subplots(figsize=(6,4))
+    st.metric("PnL Volatility (Std Dev)", f"{vol_expansion:,.0f}")
+    st.caption("Standard Deviation of Daily PnL")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    sns.scatterplot(
-        data=cluster_summary,
-        x="avg_trade_size_usd",
-        y="daily_trade_count",
-        hue="cluster",
-        size="pnl_volatility",
-        sizes=(200, 1500),
-        palette="deep",
-        alpha=0.85,
-        ax=ax3
-    )
+with k3:
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("Active Days", filtered_df.shape[0])
+    st.caption("Filtered Observations")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    ax3.set_title("Archetype Mapping")
-    ax3.set_xlabel("Average Trade Size (USD)")
-    ax3.set_ylabel("Daily Trade Count")
+with k4:
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    dominant = filtered_df["sentiment_group"].mode()[0]
+    st.metric("Dominant Regime", dominant)
+    st.caption("Most Frequent State")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.pyplot(fig3)
+# ======================================================
+# REGIME PNL DISTRIBUTION
+# ======================================================
+st.markdown('<div class="section-header">📈 PnL Distribution by Regime</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-sub">Risk dispersion across emotional states</div>', unsafe_allow_html=True)
 
+fig_box = px.box(
+    filtered_df,
+    x="sentiment_group",
+    y="daily_pnl",
+    color="sentiment_group",
+    template="plotly_dark"
+)
+fig_box.update_layout(showlegend=False)
+st.plotly_chart(fig_box, use_container_width=True)
+
+# ======================================================
+# VOLATILITY DRIVERS
+# ======================================================
+st.markdown('<div class="section-header">🔬 Volatility Drivers</div>', unsafe_allow_html=True)
+
+feature_importance = feature_importance.sort_values("importance")
+
+fig_feat = px.bar(
+    feature_importance,
+    x="importance",
+    y="feature",
+    orientation="h",
+    template="plotly_dark"
+)
+
+st.plotly_chart(fig_feat, use_container_width=True)
+
+# ======================================================
+# ARCHETYPE MAP
+# ======================================================
+st.markdown('<div class="section-header">🎯 Behavioral Archetype Mapping</div>', unsafe_allow_html=True)
+
+fig_cluster = px.scatter(
+    cluster_summary,
+    x="avg_trade_size_usd",
+    y="daily_trade_count",
+    size="pnl_volatility",
+    color="cluster",
+    log_x=True,
+    template="plotly_dark"
+)
+
+st.plotly_chart(fig_cluster, use_container_width=True, key="cluster_map")
 st.markdown("""
-**Cluster Interpretation**
+<div style="
+    background: linear-gradient(145deg, #0f172a, #0b1220);
+    padding: 22px;
+    border-radius: 14px;
+    border: 1px solid #1f2937;
+    margin-top: 18px;
+">
 
-• **Cluster 0** → High-frequency, moderate-size traders  
-• **Cluster 1** → Low-frequency, selective participants  
-• **Cluster 2** → High-size, volatility-amplifying actors  
+<h3 style="margin-bottom: 10px;">📌 Structural Interpretation</h3>
 
-Distinct structural behavior across segments validates regime-conditional strategy allocation.
-""")
+<div style="display: flex; gap: 30px;">
 
-# =====================================================
-# 4️⃣ INTERACTIVE REGIME EXPLORER
-# =====================================================
+<div style="flex:1;">
+<b style="color:#22c55e;">Cluster 0 — Tactical Participants</b>
+<ul>
+<li>Moderate trade size</li>
+<li>Higher trading frequency</li>
+<li>Short-term reactive positioning</li>
+<li>Sensitive to volatility expansion</li>
+</ul>
+</div>
 
-st.markdown("---")
-st.markdown("## 4️⃣ Interactive Daily Regime Explorer")
+<div style="flex:1;">
+<b style="color:#3b82f6;">Cluster 1 — Selective Participants</b>
+<ul>
+<li>Lower activity</li>
+<li>Moderate capital deployment</li>
+<li>Discretionary trading behavior</li>
+<li>Limited systemic influence</li>
+</ul>
+</div>
 
-uploaded_file = st.file_uploader("Upload daily_metrics_full.csv")
+<div style="flex:1;">
+<b style="color:#f59e0b;">Cluster 2 — High-Impact Capital</b>
+<ul>
+<li>Large average trade size</li>
+<li>Elevated PnL volatility</li>
+<li>Whale / institutional behavior</li>
+<li>Dominant in regime transitions</li>
+</ul>
+</div>
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+</div>
 
-    sentiment_filter = st.selectbox(
-        "Select Sentiment Regime",
-        df["sentiment_group"].unique()
-    )
+<hr style="border:0.5px solid #1f2937; margin:15px 0;">
 
-    filtered = df[df["sentiment_group"] == sentiment_filter]
+<h4>🧠 Strategic Implication</h4>
 
-    st.metric(
-        "Average Daily PnL",
-        f"${filtered['daily_pnl'].mean():,.0f}"
-    )
+Performance dispersion is structurally regime-dependent.  
+Volatility expansion disproportionately benefits high-frequency and large-capital clusters.
 
-    st.metric(
-        "Average Win Rate",
-        f"{filtered['daily_win_rate'].mean():.2%}"
-    )
+<b>Implication:</b> Regime-conditional allocation outperforms static exposure frameworks.
 
-    fig4, ax4 = plt.subplots(figsize=(7,4))
-    sns.histplot(filtered["daily_pnl"], bins=30, kde=True, ax=ax4)
-    ax4.set_title(f"PnL Distribution – {sentiment_filter}")
-    st.pyplot(fig4)
+</div>
+""", unsafe_allow_html=True)
 
-else:
-    st.warning("Upload daily_metrics_full.csv to enable dynamic exploration.")
+# ======================================================
+# REGIME TREND
+# ======================================================
+st.markdown('<div class="section-header">📊 Regime Volatility Trend</div>', unsafe_allow_html=True)
+
+vol_trend = (
+    filtered_df
+    .groupby("date")["daily_pnl"]
+    .std()
+    .reset_index()
+    .rename(columns={"daily_pnl": "volatility"})
+)
+
+# fig_vol = px.line(
+#     vol_trend,
+#     x="date",
+#     y="volatility",   # ✅ CORRECT
+#     template="plotly_dark"
+# )
+fig_vol = px.line(
+    vol_trend,
+    x="date",
+    y="volatility",
+    template="plotly_dark"
+)
+
+fig_vol.update_traces(
+    line=dict(color="#22c55e", width=2.5)
+)
+
+fig_vol.update_layout(
+    xaxis_title="Date",
+    yaxis_title="Volatility (Std Dev of Daily PnL)",
+    hovermode="x unified",
+    plot_bgcolor="#0b1220",
+    paper_bgcolor="#0b1220"
+)
+
+st.plotly_chart(fig_vol, use_container_width=True)
+
+
+# ======================================================
+# FOOTER
+# ======================================================
+st.success("✅ Regime Intelligence Generated Using Behavioral Finance & Quant Risk Framework")
